@@ -44,6 +44,9 @@ def get_info():
             '-J',
             '--no-warnings',
             '--verbose',
+            '--sleep-requests', '1.25',
+            '--min-sleep-interval', '60',
+            '--max-sleep-interval', '90'    
             '--impersonate', 'chrome-110:windows-10'
         ]
 
@@ -95,6 +98,9 @@ def handle_download(video_url, download_type):
         'yt-dlp',
         '--no-warnings',
         '--verbose',
+        '--sleep-requests', '1.25',
+        '--min-sleep-interval', '60',
+        '--max-sleep-interval', '90',
         '--impersonate', 'chrome-110:windows-10',
         '--output', output_template
     ]
