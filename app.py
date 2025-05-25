@@ -39,9 +39,15 @@ def get_info():
         return jsonify({"error": "Missing 'url' parameter."}), 400
 
     try:
-        command = ['yt-dlp', '-J', '--no-warnings']
-        temp_cookie_path = get_cookie_path()
+        command = [
+            'yt-dlp',
+            '-J',
+            '--no-warnings',
+            '--verbose',
+            '--impersonate', 'chrome-110:windows-10'
+        ]
 
+        temp_cookie_path = get_cookie_path()
         if temp_cookie_path:
             command.extend(['--cookies', temp_cookie_path])
             app.logger.info(f"Using temp cookie file for get_info: {temp_cookie_path}")
@@ -57,14 +63,25 @@ def get_info():
 
     except subprocess.CalledProcessError as e:
         app.logger.error(f"get_info yt-dlp failed. Return code: {e.returncode}\nStdout: {e.stdout}\nStderr: {e.stderr}")
-        return jsonify({"error": "yt-dlp command failed for get_info", "returncode": e.returncode, "stderr": e.stderr, "stdout": e.stdout}), 500
+        return jsonify({
+            "error": "yt-dlp command failed for get_info",
+            "returncode": e.returncode,
+            "stderr": e.stderr,
+            "stdout": e.stdout
+        }), 500
     except json.JSONDecodeError as e:
         app.logger.error(f"get_info JSON parsing failed. Raw stdout: {getattr(process, 'stdout', 'N/A')}")
-        return jsonify({"error": "Failed to parse yt-dlp JSON output for get_info", "details": str(e), "raw_stdout": getattr(process, 'stdout', 'N/A')}), 500
+        return jsonify({
+            "error": "Failed to parse yt-dlp JSON output for get_info",
+            "details": str(e),
+            "raw_stdout": getattr(process, 'stdout', 'N/A')
+        }), 500
     except Exception as e:
         app.logger.error(f"get_info unexpected error: {e}")
-        return jsonify({"error": "An unexpected error occurred during get_info", "details": str(e)}), 500
-
+        return jsonify({
+            "error": "An unexpected error occurred during get_info",
+            "details": str(e)
+        }), 500
 def handle_download(video_url, download_type):
     if not video_url:
         return jsonify({"error": "Missing 'url' parameter"}), 400
@@ -74,17 +91,20 @@ def handle_download(video_url, download_type):
     os.makedirs(specific_download_dir, exist_ok=True)
 
     output_template = os.path.join(specific_download_dir, "%(title)s - %(id)s.%(ext)s")
-    command = ['yt-dlp', '--no-warnings', '--verbose']
+    command = [
+        'yt-dlp',
+        '--no-warnings',
+        '--verbose',
+        '--impersonate', 'chrome-110:windows-10',
+        '--output', output_template
+    ]
 
     temp_cookie_path = get_cookie_path()
-
     if temp_cookie_path:
         command.extend(['--cookies', temp_cookie_path])
         app.logger.info(f"Using temp cookie file for download: {temp_cookie_path}")
     else:
         app.logger.info("No cookie file used for download.")
-
-    command.extend(['--output', output_template])
 
     if download_type == 'video':
         command.extend(['-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best'])
@@ -116,7 +136,7 @@ def handle_download(video_url, download_type):
         app.logger.info(f"File to serve: {downloaded_filename}")
 
         if process.returncode != 0 and "Read-only file system" in process.stderr and COOKIE_FILE_PATH in process.stderr:
-            app.logger.warning(f"Non-fatal cookie save issue, download may still be valid.")
+            app.logger.warning("Non-fatal cookie save issue, download may still be valid.")
         elif process.returncode != 0:
             shutil.rmtree(specific_download_dir)
             return jsonify({
@@ -140,8 +160,11 @@ def handle_download(video_url, download_type):
     except Exception as e:
         app.logger.error(f"Unexpected error in handle_download: {e}")
         shutil.rmtree(specific_download_dir)
-        return jsonify({"error": f"Unexpected error in {download_type} download", "details": str(e)}), 500
-
+        return jsonify({
+            "error": f"Unexpected error in {download_type} download",
+            "details": str(e)
+        }), 500
+        
 @app.route('/download_video', methods=['GET'])
 def download_video_route():
     video_url = request.args.get('url')
