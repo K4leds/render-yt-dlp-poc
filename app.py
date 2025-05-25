@@ -53,6 +53,10 @@ def get_info():
             '--sleep-requests', '1.25',
             '--min-sleep-interval', '60',
             '--max-sleep-interval', '90'
+            '--no-check-formats',
+            '--force-generic-extractor',
+            '--no-playlist'
+
         ]
 
         temp_cookie_path = get_cookie_path()
@@ -104,6 +108,10 @@ def handle_download(video_url, download_type):
         '--sleep-requests', '1.25',
         '--min-sleep-interval', '60',
         '--max-sleep-interval', '90',
+        '--no-check-formats',
+        '--force-generic-extractor',
+        '--no-playlist'
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
         '--output', output_template
     ]
 
