@@ -47,7 +47,6 @@ def get_info():
             '--sleep-requests', '1.25',
             '--min-sleep-interval', '60',
             '--max-sleep-interval', '90'    
-            '--impersonate', 'chrome-110:windows-10'
         ]
 
         temp_cookie_path = get_cookie_path()
@@ -101,7 +100,6 @@ def handle_download(video_url, download_type):
         '--sleep-requests', '1.25',
         '--min-sleep-interval', '60',
         '--max-sleep-interval', '90',
-        '--impersonate', 'chrome-110:windows-10',
         '--output', output_template
     ]
 
