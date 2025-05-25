@@ -36,22 +36,26 @@ def get_info():
         
         if COOKIE_FILE_PATH and os.path.exists(COOKIE_FILE_PATH):
             command.extend(['--cookies', COOKIE_FILE_PATH])
-            command.append('--no-cookies-after-download') # PREVENT SAVING COOKIES
-            app.logger.info(f"Using cookie file for get_info: {COOKIE_FILE_PATH}")
+            app.logger.info(f"Attempting to use cookie file for get_info: {COOKIE_FILE_PATH}")
         else:
             app.logger.info("Cookie file not specified or not found for get_info. Proceeding without cookies.")
             
         command.append(video_url)
         
+        app.logger.info(f"Running get_info command: {' '.join(command)}")
         process = subprocess.run(command, capture_output=True, text=True, check=True)
         video_info = json.loads(process.stdout)
         return jsonify(video_info)
+
     except subprocess.CalledProcessError as e:
-        return jsonify({"error": "yt-dlp command failed", "returncode": e.returncode, "stderr": e.stderr, "stdout": e.stdout}), 500
+        app.logger.error(f"get_info yt-dlp failed. Return code: {e.returncode}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        return jsonify({"error": "yt-dlp command failed for get_info", "returncode": e.returncode, "stderr": e.stderr, "stdout": e.stdout}), 500
     except json.JSONDecodeError as e:
-        return jsonify({"error": "Failed to parse yt-dlp JSON output", "details": str(e), "raw_stdout": getattr(process, 'stdout', 'N/A')}), 500
+        app.logger.error(f"get_info JSON parsing failed. Raw stdout: {getattr(process, 'stdout', 'N/A')}")
+        return jsonify({"error": "Failed to parse yt-dlp JSON output for get_info", "details": str(e), "raw_stdout": getattr(process, 'stdout', 'N/A')}), 500
     except Exception as e:
-        return jsonify({"error": "An unexpected error occurred", "details": str(e)}), 500
+        app.logger.error(f"get_info unexpected error: {e}")
+        return jsonify({"error": "An unexpected error occurred during get_info", "details": str(e)}), 500
 
 def handle_download(video_url, download_type):
     if not video_url:
@@ -63,12 +67,11 @@ def handle_download(video_url, download_type):
 
     output_template = os.path.join(specific_download_dir, "%(title)s - %(id)s.%(ext)s")
     
-    command = ['yt-dlp', '--no-warnings']
+    command = ['yt-dlp', '--no-warnings', '--verbose'] # Added --verbose for more detailed logs
 
     if COOKIE_FILE_PATH and os.path.exists(COOKIE_FILE_PATH):
         command.extend(['--cookies', COOKIE_FILE_PATH])
-        command.append('--no-cookies-after-download') # PREVENT SAVING COOKIES
-        app.logger.info(f"Using cookie file for download: {COOKIE_FILE_PATH}")
+        app.logger.info(f"Attempting to use cookie file for download: {COOKIE_FILE_PATH}")
     else:
         app.logger.info("Cookie file not specified or not found for download. Proceeding without cookies.")
 
@@ -82,22 +85,50 @@ def handle_download(video_url, download_type):
     command.append(video_url)
 
     try:
-        app.logger.info(f"Running command: {' '.join(command)}")
-        process = subprocess.run(command, capture_output=True, text=True, check=True)
-        app.logger.info(f"yt-dlp stdout: {process.stdout}")
+        app.logger.info(f"Running download command: {' '.join(command)}")
+        # We will not use check=True here to capture output even if yt-dlp has a non-zero exit due to cookie saving
+        process = subprocess.run(command, capture_output=True, text=True) 
+        
+        app.logger.info(f"Download yt-dlp stdout: {process.stdout}")
         if process.stderr:
-            app.logger.info(f"yt-dlp stderr: {process.stderr}")
+             app.logger.info(f"Download yt-dlp stderr: {process.stderr}") # Log stderr regardless of exit code
 
+        # Check if files were downloaded, even if yt-dlp had a non-zero exit code due to cookie saving
         downloaded_files = os.listdir(specific_download_dir)
         if not downloaded_files:
-            shutil.rmtree(specific_download_dir)
-            return jsonify({"error": "yt-dlp ran but no file was found in the temporary directory.", 
-                            "stdout": process.stdout, 
-                            "stderr": process.stderr,
-                            "expected_dir": specific_download_dir}), 500
-        
+            # If no files, then the download truly failed before file creation or yt-dlp error was critical
+            if process.returncode != 0 : # yt-dlp indicated an error
+                 shutil.rmtree(specific_download_dir)
+                 return jsonify({"error": f"yt-dlp {download_type} download command truly failed or no file produced.", 
+                                "returncode": process.returncode,
+                                "stdout": process.stdout, 
+                                "stderr": process.stderr,
+                                "expected_dir": specific_download_dir}), 500
+            else: # No files but yt-dlp exited cleanly (unlikely if no files, but handle)
+                 shutil.rmtree(specific_download_dir)
+                 return jsonify({"error": "yt-dlp ran but no file was found, though it exited cleanly.", 
+                                "stdout": process.stdout, 
+                                "stderr": process.stderr,
+                                "expected_dir": specific_download_dir}), 500
+
+
         downloaded_filename = downloaded_files[0]
         app.logger.info(f"File to serve: {downloaded_filename} from {specific_download_dir}")
+
+        # Check for the specific OSError related to saving cookies if yt-dlp had an error
+        # This OSError typically happens at the very end of yt-dlp's execution.
+        # If this is the *only* error, the download itself might have succeeded.
+        if process.returncode != 0 and "Read-only file system" in process.stderr and COOKIE_FILE_PATH in process.stderr:
+            app.logger.warning(f"yt-dlp exited with code {process.returncode} likely due to read-only cookie save attempt, but download may have succeeded.")
+        elif process.returncode != 0: # Some other error from yt-dlp
+            shutil.rmtree(specific_download_dir)
+            return jsonify({
+                "error": f"yt-dlp {download_type} download command failed with an unexpected error",
+                "returncode": process.returncode,
+                "stderr": process.stderr,
+                "stdout": process.stdout
+            }), 500
+
 
         @after_this_request
         def cleanup(response):
@@ -110,19 +141,11 @@ def handle_download(video_url, download_type):
 
         return send_from_directory(directory=specific_download_dir, path=downloaded_filename, as_attachment=True)
 
-    except subprocess.CalledProcessError as e:
-        app.logger.error(f"yt-dlp failed. Return code: {e.returncode}\nStdout: {e.stdout}\nStderr: {e.stderr}")
-        shutil.rmtree(specific_download_dir)
-        return jsonify({
-            "error": f"yt-dlp {download_type} download command failed",
-            "returncode": e.returncode,
-            "stderr": e.stderr,
-            "stdout": e.stdout
-        }), 500
-    except Exception as e:
-        app.logger.error(f"An unexpected error occurred: {e}")
-        shutil.rmtree(specific_download_dir)
+    except Exception as e: # Catch other exceptions like issues with os.listdir, etc.
+        app.logger.error(f"An unexpected error occurred in handle_download: {e}")
+        shutil.rmtree(specific_download_dir) # Clean up
         return jsonify({"error": f"An unexpected error occurred during {download_type} download", "details": str(e)}), 500
+
 
 @app.route('/download_video', methods=['GET'])
 def download_video_route():
